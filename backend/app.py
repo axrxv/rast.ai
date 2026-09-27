@@ -54,7 +54,6 @@ def chat():
     data = request.get_json()
 
     if not data:
-
         return jsonify({
             "error": "No JSON data received."
         }), 400
@@ -86,58 +85,15 @@ def chat():
 
 
     # =====================================================
-    # MODE-SPECIFIC INSTRUCTIONS
+    # CHAT MODE
     # =====================================================
 
-    if mode == "design":
-
-        system_instruction = """
-You are rast.ai Design Studio.
-
-You are an expert creative director, brand strategist,
-UI/UX designer and marketing designer.
-
-Help users create:
-- social media creatives
-- advertisements
-- brand identities
-- logos
-- UI concepts
-- landing pages
-- campaign concepts
-- visual directions
-- design systems
-- creative briefs
-
-When useful, structure your answer as:
-
-CONCEPT
-VISUAL DIRECTION
-COLOR PALETTE
-TYPOGRAPHY
-LAYOUT
-COPY
-DESIGN DETAILS
-NEXT STEPS
-
-Be creative, specific and practical.
-
-Do not claim that you generated an actual image unless
-an image-generation tool has actually generated one.
-"""
-
-
-    else:
+    if mode == "chat":
 
         system_instruction = """
 You are rast.ai, a helpful AI assistant.
 
-Be:
-- clear
-- friendly
-- intelligent
-- concise when possible
-- detailed when useful
+Be clear, friendly, intelligent and useful.
 
 You can help with:
 - brainstorming
@@ -146,19 +102,77 @@ You can help with:
 - marketing
 - business ideas
 - studying
-- research
 - planning
+- research
 - creative work
+
+When answering complex questions, organize your
+response using headings, bullets and steps.
 
 Never pretend to be human.
 
-When the user asks for a complex task, organize
-the answer clearly with headings and steps.
+Do not claim to have performed an action that you
+did not actually perform.
 """
 
 
     # =====================================================
-    # BUILD CONVERSATION
+    # DESIGN MODE
+    # =====================================================
+
+    else:
+
+        system_instruction = """
+You are rast.ai Design Studio.
+
+You are an expert:
+- creative director
+- brand strategist
+- graphic designer
+- UI/UX designer
+- marketing designer
+- advertising creative strategist
+
+Help users create:
+- Instagram creatives
+- advertisements
+- brand identities
+- logos
+- UI concepts
+- landing pages
+- campaigns
+- social media concepts
+- visual directions
+- design systems
+- creative briefs
+
+When useful, structure responses using:
+
+CONCEPT
+
+VISUAL DIRECTION
+
+COLOR PALETTE
+
+TYPOGRAPHY
+
+LAYOUT
+
+COPY
+
+DESIGN DETAILS
+
+NEXT STEPS
+
+Be creative, specific and practical.
+
+Do not claim that an actual image has been generated
+unless an image-generation system has actually generated it.
+"""
+
+
+    # =====================================================
+    # CONVERSATION
     # =====================================================
 
     contents = []
@@ -181,32 +195,41 @@ the answer clearly with headings and steps.
             continue
 
 
-        contents.append(
-            {
-                "role": role,
-                "parts": [
-                    {
-                        "text": text
-                    }
-                ]
-            }
-        )
+        # Gemini expects user/model roles.
+        if role not in ["user", "model"]:
+            role = "user"
 
 
-    contents.append(
-        {
-            "role": "user",
+        contents.append({
+
+            "role": role,
+
             "parts": [
                 {
-                    "text": message
+                    "text": text
                 }
             ]
-        }
-    )
+
+        })
+
+
+    # Current message
+
+    contents.append({
+
+        "role": "user",
+
+        "parts": [
+            {
+                "text": message
+            }
+        ]
+
+    })
 
 
     # =====================================================
-    # GENERATE
+    # GEMINI REQUEST
     # =====================================================
 
     try:
@@ -225,7 +248,9 @@ the answer clearly with headings and steps.
                 temperature=0.7,
 
                 max_output_tokens=1500
+
             )
+
         )
 
 
@@ -256,7 +281,7 @@ the answer clearly with headings and steps.
 
 
 # =========================================================
-# RUN
+# START SERVER
 # =========================================================
 
 if __name__ == "__main__":
@@ -276,4 +301,5 @@ if __name__ == "__main__":
         port=port,
 
         debug=False
+
     )
