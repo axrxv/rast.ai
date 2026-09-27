@@ -2,91 +2,51 @@ import os
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+
 from google import genai
 from google.genai import types
 
+
+# =========================================================
+# APP
+# =========================================================
+
 app = Flask(__name__)
+
 CORS(app)
+
+
+# =========================================================
+# GEMINI
+# =========================================================
 
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if not API_KEY:
     raise RuntimeError("GEMINI_API_KEY is not set.")
 
-client = genai.Client(api_key=API_KEY)
+
+client = genai.Client(
+    api_key=API_KEY
+)
+
 
 MODEL = "gemini-3.5-flash-lite"
 
 
-BASE_INSTRUCTION = """
-You are rast.ai, an AI assistant created for creativity, business, marketing,
-design thinking, writing, brainstorming and everyday questions.
-
-You are not a human.
-
-Your personality:
-- smart
-- concise
-- creative
-- friendly
-- confident
-- practical
-- modern
-
-Give useful answers rather than unnecessary filler.
-
-When helping with business or marketing:
-- think strategically
-- give actionable ideas
-- consider the target audience
-- focus on clarity and results
-
-When helping with design:
-- think like a professional creative director
-- consider hierarchy, typography, spacing, composition,
-  color, contrast and visual consistency
-- explain your reasoning when useful
-
-Never claim that you generated an actual image when you only generated
-a text concept or design brief.
-"""
-
-
-DESIGN_INSTRUCTION = """
-You are the Design Studio inside rast.ai.
-
-Act as a professional graphic designer, art director,
-brand strategist and creative director.
-
-When the user asks for a design, provide a practical,
-production-ready design concept.
-
-Include when relevant:
-
-1. Concept
-2. Layout
-3. Visual hierarchy
-4. Color palette
-5. Typography
-6. Imagery
-7. Main headline
-8. Supporting copy
-9. CTA
-10. Suggested dimensions
-11. Social-media adaptation
-12. AI image-generation prompt if useful
-
-Make the result visually specific.
-
-Do not claim that you created a finished image unless an actual
-image-generation model was used.
-"""
-
+# =========================================================
+# HOME
+# =========================================================
 
 @app.route("/")
 def home():
-    return "rast.ai backend is running!"
 
+    return "rast.ai backend is running."
+
+
+# =========================================================
+# CHAT
+# =========================================================
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -94,51 +54,210 @@ def chat():
     data = request.get_json()
 
     if not data:
+
         return jsonify({
             "error": "No JSON data received."
         }), 400
 
-    message = data.get("message", "").strip()
+
+    message = data.get(
+        "message",
+        ""
+    ).strip()
+
+
+    mode = data.get(
+        "mode",
+        "chat"
+    )
+
+
+    history = data.get(
+        "history",
+        []
+    )
+
 
     if not message:
+
         return jsonify({
             "error": "Message cannot be empty."
         }), 400
 
-    mode = data.get("mode", "chat")
+
+    # =====================================================
+    # MODE-SPECIFIC INSTRUCTIONS
+    # =====================================================
 
     if mode == "design":
-        system_instruction = (
-            BASE_INSTRUCTION
-            + "\n"
-            + DESIGN_INSTRUCTION
-        )
+
+        system_instruction = """
+You are rast.ai Design Studio.
+
+You are an expert creative director, brand strategist,
+UI/UX designer and marketing designer.
+
+Help users create:
+- social media creatives
+- advertisements
+- brand identities
+- logos
+- UI concepts
+- landing pages
+- campaign concepts
+- visual directions
+- design systems
+- creative briefs
+
+When useful, structure your answer as:
+
+CONCEPT
+VISUAL DIRECTION
+COLOR PALETTE
+TYPOGRAPHY
+LAYOUT
+COPY
+DESIGN DETAILS
+NEXT STEPS
+
+Be creative, specific and practical.
+
+Do not claim that you generated an actual image unless
+an image-generation tool has actually generated one.
+"""
+
+
     else:
-        system_instruction = BASE_INSTRUCTION
+
+        system_instruction = """
+You are rast.ai, a helpful AI assistant.
+
+Be:
+- clear
+- friendly
+- intelligent
+- concise when possible
+- detailed when useful
+
+You can help with:
+- brainstorming
+- writing
+- coding
+- marketing
+- business ideas
+- studying
+- research
+- planning
+- creative work
+
+Never pretend to be human.
+
+When the user asks for a complex task, organize
+the answer clearly with headings and steps.
+"""
+
+
+    # =====================================================
+    # BUILD CONVERSATION
+    # =====================================================
+
+    contents = []
+
+
+    for item in history:
+
+        role = item.get(
+            "role",
+            "user"
+        )
+
+        text = item.get(
+            "text",
+            ""
+        )
+
+
+        if not text:
+            continue
+
+
+        contents.append(
+            {
+                "role": role,
+                "parts": [
+                    {
+                        "text": text
+                    }
+                ]
+            }
+        )
+
+
+    contents.append(
+        {
+            "role": "user",
+            "parts": [
+                {
+                    "text": message
+                }
+            ]
+        }
+    )
+
+
+    # =====================================================
+    # GENERATE
+    # =====================================================
 
     try:
 
         response = client.models.generate_content(
+
             model=MODEL,
-            contents=message,
+
+            contents=contents,
+
             config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
+
+                system_instruction=
+                    system_instruction,
+
+                temperature=0.7,
+
                 max_output_tokens=1500
             )
         )
 
+
+        reply = response.text
+
+
         return jsonify({
-            "reply": response.text
+
+            "reply": reply
+
         })
+
 
     except Exception as error:
 
-        print(error)
+        print(
+            "GEMINI ERROR:",
+            error
+        )
+
 
         return jsonify({
-            "error": "The AI could not generate a response."
+
+            "error":
+                "The AI could not generate a response."
+
         }), 500
 
+
+# =========================================================
+# RUN
+# =========================================================
 
 if __name__ == "__main__":
 
@@ -149,8 +268,12 @@ if __name__ == "__main__":
         )
     )
 
+
     app.run(
+
         host="0.0.0.0",
+
         port=port,
-        debug=True
+
+        debug=False
     )
