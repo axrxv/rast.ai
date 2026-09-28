@@ -1,6 +1,5 @@
 import os
 import base64
-from io import BytesIO
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -8,8 +7,10 @@ from flask_cors import CORS
 from google import genai
 from google.genai import types
 
-from huggingface_hub import InferenceClient
 
+# =========================================================
+# FLASK APP
+# =========================================================
 
 app = Flask(__name__)
 CORS(app)
@@ -19,33 +20,21 @@ CORS(app)
 # GEMINI SETUP
 # =========================================================
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+API_KEY = os.environ.get("GEMINI_API_KEY")
 
-if not GEMINI_API_KEY:
+if not API_KEY:
     raise RuntimeError("GEMINI_API_KEY is not set.")
 
-gemini_client = genai.Client(
-    api_key=GEMINI_API_KEY
-)
-
-GEMINI_MODEL = "gemini-3.5-flash-lite"
+client = genai.Client(api_key=API_KEY)
 
 
 # =========================================================
-# HUGGING FACE IMAGE SETUP
+# MODELS
 # =========================================================
 
-HF_TOKEN = os.environ.get("HF_TOKEN")
+CHAT_MODEL = "gemini-3.5-flash-lite"
 
-if not HF_TOKEN:
-    raise RuntimeError("HF_TOKEN is not set.")
-
-image_client = InferenceClient(
-    provider="auto",
-    api_key=HF_TOKEN
-)
-
-IMAGE_MODEL = "black-forest-labs/FLUX.1-dev"
+IMAGE_MODEL = "gemini-3.1-flash-image"
 
 
 # =========================================================
@@ -72,14 +61,26 @@ def chat():
         }), 400
 
     message = data.get("message", "").strip()
-    mode = data.get("mode", "chat")
-    history = data.get("history", [])
+
+    mode = data.get(
+        "mode",
+        "chat"
+    )
+
+    history = data.get(
+        "history",
+        []
+    )
 
     if not message:
         return jsonify({
             "error": "Message cannot be empty."
         }), 400
 
+
+    # -----------------------------------------------------
+    # SYSTEM INSTRUCTION
+    # -----------------------------------------------------
 
     if mode == "chat":
 
@@ -89,6 +90,7 @@ You are rast.ai, a helpful AI assistant.
 Be clear, friendly, intelligent and useful.
 
 You can help with:
+
 - brainstorming
 - writing
 - coding
@@ -114,6 +116,7 @@ did not actually perform.
 You are rast.ai Design Studio.
 
 You are an expert:
+
 - creative director
 - brand strategist
 - graphic designer
@@ -122,6 +125,7 @@ You are an expert:
 - advertising creative strategist
 
 Help users create:
+
 - Instagram creatives
 - advertisements
 - brand identities
@@ -152,47 +156,80 @@ unless an image-generation system has actually generated it.
 """
 
 
+    # -----------------------------------------------------
+    # BUILD CONVERSATION
+    # -----------------------------------------------------
+
     contents = []
 
     for item in history:
 
-        role = item.get("role", "user")
-        text = item.get("text", "")
+        role = item.get(
+            "role",
+            "user"
+        )
+
+        text = item.get(
+            "text",
+            ""
+        )
 
         if not text:
             continue
 
-        if role not in ["user", "model"]:
+        if role not in [
+            "user",
+            "model"
+        ]:
             role = "user"
 
-        contents.append({
-            "role": role,
-            "parts": [
-                {
-                    "text": text
-                }
+        contents.append(
+            types.Content(
+                role=role,
+                parts=[
+                    types.Part(
+                        text=text
+                    )
+                ]
+            )
+        )
+
+
+    # -----------------------------------------------------
+    # CURRENT USER MESSAGE
+    # -----------------------------------------------------
+
+    contents.append(
+        types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    text=message
+                )
             ]
-        })
+        )
+    )
 
 
-    contents.append({
-        "role": "user",
-        "parts": [
-            {
-                "text": message
-            }
-        ]
-    })
-
+    # -----------------------------------------------------
+    # GENERATE RESPONSE
+    # -----------------------------------------------------
 
     try:
 
-        response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
+        response = client.models.generate_content(
+
+            model=CHAT_MODEL,
+
             contents=contents,
+
             config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
+
+                system_instruction=
+                    system_instruction,
+
                 temperature=0.7,
+
                 max_output_tokens=1500
             )
         )
@@ -206,10 +243,14 @@ unless an image-generation system has actually generated it.
 
     except Exception as error:
 
-        print("GEMINI ERROR:", error)
+        print(
+            "GEMINI CHAT ERROR:",
+            error
+        )
 
         return jsonify({
-            "error": "The AI could not generate a response."
+            "error":
+                "The AI could not generate a response."
         }), 500
 
 
@@ -217,72 +258,135 @@ unless an image-generation system has actually generated it.
 # IMAGE GENERATION
 # =========================================================
 
-@app.route("/generate-image", methods=["POST"])
+@app.route(
+    "/generate-image",
+    methods=["POST"]
+)
 def generate_image():
 
     data = request.get_json()
 
     if not data:
+
         return jsonify({
-            "error": "No JSON data received."
+            "success": False,
+            "error":
+                "No JSON data received."
         }), 400
 
 
-    prompt = data.get("prompt", "").strip()
+    prompt = data.get(
+        "prompt",
+        ""
+    ).strip()
+
 
     if not prompt:
+
         return jsonify({
-            "error": "Image prompt cannot be empty."
+            "success": False,
+            "error":
+                "Image prompt cannot be empty."
         }), 400
+
+
+    print(
+        "IMAGE REQUEST:",
+        prompt
+    )
 
 
     try:
 
-        print("IMAGE REQUEST:", prompt)
+        # -------------------------------------------------
+        # GEMINI IMAGE GENERATION
+        # -------------------------------------------------
 
+        response = client.models.generate_content(
 
-        image = image_client.text_to_image(
-            prompt=prompt,
-            model=IMAGE_MODEL
+            model=IMAGE_MODEL,
+
+            contents=[
+                prompt
+            ],
+
+            config=types.GenerateContentConfig(
+
+                response_modalities=[
+                    "IMAGE"
+                ],
+
+                response_format={
+                    "image": {
+                        "aspect_ratio": "16:9",
+                        "image_size": "1K"
+                    }
+                }
+            )
         )
 
 
-        # Convert generated PIL image into PNG bytes
-        buffer = BytesIO()
+        # -------------------------------------------------
+        # FIND GENERATED IMAGE
+        # -------------------------------------------------
 
-        image.save(
-            buffer,
-            format="PNG"
-        )
+        image_data = None
 
-        buffer.seek(0)
+        for part in response.parts:
+
+            if part.inline_data is not None:
+
+                image_data = (
+                    part.inline_data.data
+                )
+
+                break
 
 
-        # Convert PNG into base64
-        image_base64 = base64.b64encode(
-            buffer.read()
-        ).decode("utf-8")
+        # -------------------------------------------------
+        # CHECK RESULT
+        # -------------------------------------------------
 
+        if not image_data:
+
+            raise RuntimeError(
+                "Gemini did not return an image."
+            )
+
+
+        # -------------------------------------------------
+        # RETURN IMAGE TO WEBSITE
+        # -------------------------------------------------
 
         return jsonify({
+
             "success": True,
-            "image": image_base64,
+
+            "image": image_data,
+
             "format": "png"
+
         })
 
 
     except Exception as error:
 
-        print("IMAGE GENERATION ERROR:", error)
+        print(
+            "IMAGE GENERATION ERROR:",
+            error
+        )
 
         return jsonify({
+
             "success": False,
+
             "error": str(error)
+
         }), 500
 
 
 # =========================================================
-# START SERVER
+# RUN SERVER
 # =========================================================
 
 if __name__ == "__main__":
